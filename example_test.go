@@ -47,7 +47,7 @@ func ExampleMarshal_mapStringInterface() {
 	// hello = world
 }
 
-func ExampleDecoder_SetDecodeMapFunc() {
+func ExampleDecoder_SetMapDecoder() {
 	buf := new(bytes.Buffer)
 
 	enc := msgpack.NewEncoder(buf)
@@ -60,7 +60,7 @@ func ExampleDecoder_SetDecodeMapFunc() {
 	dec := msgpack.NewDecoder(buf)
 
 	// Causes decoder to produce map[string]string instead of map[string]interface{}.
-	dec.SetDecodeMapFunc(func(d *msgpack.Decoder) (interface{}, error) {
+	dec.SetMapDecoder(func(d *msgpack.Decoder) (interface{}, error) {
 		n, err := d.DecodeMapLen()
 		if err != nil {
 			return nil, err
@@ -117,7 +117,7 @@ func ExampleDecoder_Query() {
 	// 2nd phone is 54321
 }
 
-func ExampleEncoder_UseArrayForStructs() {
+func ExampleEncoder_UseArrayEncodedStructs() {
 	type Item struct {
 		Foo string
 		Bar string
@@ -125,7 +125,7 @@ func ExampleEncoder_UseArrayForStructs() {
 
 	var buf bytes.Buffer
 	enc := msgpack.NewEncoder(&buf)
-	enc.StructAsArray(true)
+	enc.UseArrayEncodedStructs(true)
 
 	err := enc.Encode(&Item{Foo: "foo", Bar: "bar"})
 	if err != nil {
@@ -143,7 +143,7 @@ func ExampleEncoder_UseArrayForStructs() {
 
 func ExampleMarshal_asArray() {
 	type Item struct {
-		_msgpack struct{} `msgpack:",asArray"`
+		_msgpack struct{} `msgpack:",as_array"`
 		Foo      string
 		Bar      string
 	}
@@ -196,4 +196,26 @@ func ExampleMarshal_omitEmpty() {
 
 	// Output: item: "\x82\xa3Foo\xa5hello\xa3Bar\xa0"
 	// item2: "\x81\xa3Foo\xa5hello"
+}
+
+func ExampleMarshal_escapedNames() {
+	og := map[string]interface{}{
+		"something:special": uint(123),
+		"hello, world":      "hello!",
+	}
+	raw, err := msgpack.Marshal(og)
+	if err != nil {
+		panic(err)
+	}
+
+	type Item struct {
+		SomethingSpecial uint   `msgpack:"'something:special'"`
+		HelloWorld       string `msgpack:"'hello, world'"`
+	}
+	var item Item
+	if err := msgpack.Unmarshal(raw, &item); err != nil {
+		panic(err)
+	}
+	fmt.Printf("%#v\n", item)
+	//output: msgpack_test.Item{SomethingSpecial:0x7b, HelloWorld:"hello!"}
 }

@@ -95,6 +95,26 @@ func BenchmarkInt32(b *testing.B) {
 	benchmarkEncodeDecode(b, int32(0), &dst)
 }
 
+func BenchmarkFloat32(b *testing.B) {
+	var dst float32
+	benchmarkEncodeDecode(b, float32(0), &dst)
+}
+
+func BenchmarkFloat32_Max(b *testing.B) {
+	var dst float32
+	benchmarkEncodeDecode(b, float32(math.MaxFloat32), &dst)
+}
+
+func BenchmarkFloat64(b *testing.B) {
+	var dst float64
+	benchmarkEncodeDecode(b, float64(0), &dst)
+}
+
+func BenchmarkFloat64_Max(b *testing.B) {
+	var dst float64
+	benchmarkEncodeDecode(b, float64(math.MaxFloat64), &dst)
+}
+
 func BenchmarkTime(b *testing.B) {
 	var dst time.Time
 	benchmarkEncodeDecode(b, time.Now(), &dst)
@@ -203,8 +223,10 @@ type benchmarkStruct2 struct {
 	UpdatedAt time.Time
 }
 
-var _ msgpack.CustomEncoder = (*benchmarkStruct2)(nil)
-var _ msgpack.CustomDecoder = (*benchmarkStruct2)(nil)
+var (
+	_ msgpack.CustomEncoder = (*benchmarkStruct2)(nil)
+	_ msgpack.CustomDecoder = (*benchmarkStruct2)(nil)
+)
 
 func (s *benchmarkStruct2) EncodeMsgpack(enc *msgpack.Encoder) error {
 	return enc.EncodeMulti(
@@ -346,8 +368,8 @@ func BenchmarkQuery(b *testing.B) {
 	var records []map[string]interface{}
 	for i := 0; i < 1000; i++ {
 		record := map[string]interface{}{
-			"id":    i,
-			"attrs": map[string]interface{}{"phone": i},
+			"id":    int64(i),
+			"attrs": map[string]interface{}{"phone": int64(i)},
 		}
 		records = append(records, record)
 	}

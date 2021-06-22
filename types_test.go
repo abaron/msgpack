@@ -5,21 +5,22 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"math/big"
 	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
-	"github.com/vmihailenco/msgpack/v5/codes"
+	"github.com/vmihailenco/msgpack/v5/msgpcode"
 )
 
 //------------------------------------------------------------------------------
 
 type Object struct {
-	n int
+	n int64
 }
 
 func (o *Object) MarshalMsgpack() ([]byte, error) {
@@ -112,6 +113,17 @@ type CustomEncoderField struct {
 	Field CustomEncoder
 }
 
+type CustomEncoderEmbeddedPtr struct {
+	*CustomEncoder
+}
+
+func (s *CustomEncoderEmbeddedPtr) DecodeMsgpack(dec *msgpack.Decoder) error {
+	if s.CustomEncoder == nil {
+		s.CustomEncoder = new(CustomEncoder)
+	}
+	return s.CustomEncoder.DecodeMsgpack(dec)
+}
+
 //------------------------------------------------------------------------------
 
 type JSONFallbackTest struct {
@@ -123,7 +135,7 @@ func TestUseJsonTag(t *testing.T) {
 	var buf bytes.Buffer
 
 	enc := msgpack.NewEncoder(&buf)
-	enc.UseJSONTag(true)
+	enc.SetCustomStructTag("json")
 
 	in := &JSONFallbackTest{Foo: "hello", Bar: "world"}
 	err := enc.Encode(in)
@@ -132,7 +144,7 @@ func TestUseJsonTag(t *testing.T) {
 	}
 
 	dec := msgpack.NewDecoder(&buf)
-	dec.UseJSONTag(true)
+	dec.SetCustomStructTag("json")
 
 	out := new(JSONFallbackTest)
 	err = dec.Decode(out)
@@ -159,7 +171,7 @@ func TestUseCustomTag(t *testing.T) {
 	var buf bytes.Buffer
 
 	enc := msgpack.NewEncoder(&buf)
-	enc.UseCustomStructTag("custom")
+	enc.SetCustomStructTag("custom")
 	in := &CustomFallbackTest{Foo: "hello", Bar: "world"}
 	err := enc.Encode(in)
 	if err != nil {
@@ -167,7 +179,7 @@ func TestUseCustomTag(t *testing.T) {
 	}
 
 	dec := msgpack.NewDecoder(&buf)
-	dec.UseCustomStructTag("custom")
+	dec.SetCustomStructTag("custom")
 	out := new(CustomFallbackTest)
 	err = dec.Decode(out)
 	if err != nil {
@@ -183,6 +195,11 @@ func TestUseCustomTag(t *testing.T) {
 }
 
 //------------------------------------------------------------------------------
+
+type OmitTimeTest struct {
+	Foo time.Time  `msgpack:",omitempty"`
+	Bar *time.Time `msgpack:",omitempty"`
+}
 
 type OmitEmptyTest struct {
 	Foo string `msgpack:",omitempty"`
@@ -209,45 +226,13 @@ type InlineDupTest struct {
 }
 
 type AsArrayTest struct {
-	_msgpack struct{} `msgpack:",asArray"`
+	_msgpack struct{} `msgpack:",as_array"`
 
 	OmitEmptyTest
 }
 
 type ExtTestField struct {
 	ExtTest ExtTest
-}
-
-type NoIntern struct {
-	A string
-	B string
-	C string
-}
-
-type Intern struct {
-	A string      `msgpack:",intern"`
-	B string      `msgpack:",intern"`
-	C interface{} `msgpack:",intern"`
-}
-
-func TestIntern(t *testing.T) {
-	var buf bytes.Buffer
-	enc := msgpack.NewEncoder(&buf)
-	dec := msgpack.NewDecoder(&buf)
-
-	in := []Intern{
-		{"f", "f", "f"},
-		{"fo", "fo", "fo"},
-		{"foo", "foo", "foo"},
-		{"f", "fo", "foo"},
-	}
-	err := enc.Encode(in)
-	assert.Nil(t, err)
-
-	var out []Intern
-	err = dec.Decode(&out)
-	assert.Nil(t, err)
-	assert.Equal(t, in, out)
 }
 
 //------------------------------------------------------------------------------
@@ -307,22 +292,18 @@ var encoderTests = []encoderTest{
 func TestEncoder(t *testing.T) {
 	var buf bytes.Buffer
 	enc := msgpack.NewEncoder(&buf)
-	enc.UseJSONTag(true)
-	enc.SortMapKeys(true)
+	enc.SetCustomStructTag("json")
+	enc.SetSortMapKeys(true)
 	enc.UseCompactInts(true)
 
-	for _, test := range encoderTests {
+	for i, test := range encoderTests {
 		buf.Reset()
 
 		err := enc.Encode(test.in)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.Nil(t, err)
 
 		s := hex.EncodeToString(buf.Bytes())
-		if s != test.wanted {
-			t.Fatalf("%s != %s (in=%#v)", s, test.wanted, test.in)
-		}
+		require.Equal(t, test.wanted, s, "#%d", i)
 	}
 }
 
@@ -379,10 +360,10 @@ type decoderTest struct {
 }
 
 var decoderTests = []decoderTest{
-	{b: []byte{byte(codes.Bin32), 0x0f, 0xff, 0xff, 0xff}, out: new([]byte), err: "EOF"},
-	{b: []byte{byte(codes.Str32), 0x0f, 0xff, 0xff, 0xff}, out: new([]byte), err: "EOF"},
-	{b: []byte{byte(codes.Array32), 0x0f, 0xff, 0xff, 0xff}, out: new([]int), err: "EOF"},
-	{b: []byte{byte(codes.Map32), 0x0f, 0xff, 0xff, 0xff}, out: new(map[int]int), err: "EOF"},
+	{b: []byte{byte(msgpcode.Bin32), 0x0f, 0xff, 0xff, 0xff}, out: new([]byte), err: "EOF"},
+	{b: []byte{byte(msgpcode.Str32), 0x0f, 0xff, 0xff, 0xff}, out: new([]byte), err: "EOF"},
+	{b: []byte{byte(msgpcode.Array32), 0x0f, 0xff, 0xff, 0xff}, out: new([]int), err: "EOF"},
+	{b: []byte{byte(msgpcode.Map32), 0x0f, 0xff, 0xff, 0xff}, out: new(map[int]int), err: "EOF"},
 }
 
 func TestDecoder(t *testing.T) {
@@ -420,10 +401,6 @@ type EmbeddedTime struct {
 	time.Time
 }
 
-type Interface struct {
-	Foo interface{}
-}
-
 type (
 	interfaceAlias     interface{}
 	byteAlias          byte
@@ -456,7 +433,7 @@ func (t typeTest) String() string {
 	return fmt.Sprintf("in=%#v, out=%#v", t.in, t.out)
 }
 
-func (t *typeTest) assertErr(err error, s string) {
+func (t *typeTest) requireErr(err error, s string) {
 	if err == nil {
 		t.Fatalf("got %v error, wanted %q", err, s)
 	}
@@ -578,7 +555,6 @@ var (
 
 		{in: time.Unix(0, 0), out: new(time.Time)},
 		{in: new(time.Time), out: new(time.Time)},
-		{in: new(time.Time), out: new(*time.Time)},
 		{in: time.Unix(0, 1), out: new(time.Time)},
 		{in: time.Unix(1, 0), out: new(time.Time)},
 		{in: time.Unix(1, 1), out: new(time.Time)},
@@ -601,9 +577,16 @@ var (
 			in:  &CustomEncoderField{Field: CustomEncoder{"a", nil, 1}},
 			out: new(CustomEncoderField),
 		},
+		{
+			in:  &CustomEncoderEmbeddedPtr{&CustomEncoder{"a", nil, 1}},
+			out: new(CustomEncoderEmbeddedPtr),
+		},
 
 		{in: repoURL, out: new(url.URL)},
 		{in: repoURL, out: new(*url.URL)},
+
+		{in: OmitEmptyTest{}, out: new(OmitEmptyTest)},
+		{in: OmitTimeTest{}, out: new(OmitTimeTest)},
 
 		{in: nil, out: new(*AsArrayTest), wantnil: true},
 		{in: nil, out: new(AsArrayTest), wantzero: true},
@@ -611,21 +594,19 @@ var (
 		{
 			in:     AsArrayTest{OmitEmptyTest: OmitEmptyTest{"foo", "bar"}},
 			out:    new(unexported),
-			wanted: unexported{Foo: "foo"},
+			decErr: "msgpack: number of fields in array-encoded struct has changed",
 		},
 
 		{in: (*EventTime)(nil), out: new(*EventTime)},
-		{in: &EventTime{time.Unix(0, 0)}, out: new(EventTime)},
+		{in: &EventTime{time.Unix(0, 0)}, out: new(*EventTime)},
 
 		{in: (*ExtTest)(nil), out: new(*ExtTest)},
-		{in: &ExtTest{"world"}, out: new(ExtTest), wanted: ExtTest{"hello world"}},
+		{in: &ExtTest{"world"}, out: new(*ExtTest), wanted: ExtTest{"hello world"}},
 		{
-			in:     ExtTestField{ExtTest{"world"}},
-			out:    new(ExtTestField),
+			in:     &ExtTestField{ExtTest{"world"}},
+			out:    new(*ExtTestField),
 			wanted: ExtTestField{ExtTest{"hello world"}},
 		},
-
-		{in: Interface{Foo: "foo"}, out: &Interface{Foo: "bar"}},
 
 		{
 			in:  &InlineTest{OmitEmptyTest: OmitEmptyTest{Bar: "world"}},
@@ -639,6 +620,8 @@ var (
 			in:  InlineDupTest{FooTest{"foo"}, FooDupTest{"foo"}},
 			out: new(InlineDupTest),
 		},
+
+		{in: big.NewInt(123), out: new(big.Int)},
 	}
 )
 
@@ -654,6 +637,8 @@ func indirect(viface interface{}) interface{} {
 }
 
 func TestTypes(t *testing.T) {
+	msgpack.RegisterExt(1, (*EventTime)(nil))
+
 	for _, test := range typeTests {
 		test.T = t
 
@@ -662,7 +647,7 @@ func TestTypes(t *testing.T) {
 		enc := msgpack.NewEncoder(&buf)
 		err := enc.Encode(test.in)
 		if test.encErr != "" {
-			test.assertErr(err, test.encErr)
+			test.requireErr(err, test.encErr)
 			continue
 		}
 		if err != nil {
@@ -672,7 +657,7 @@ func TestTypes(t *testing.T) {
 		dec := msgpack.NewDecoder(&buf)
 		err = dec.Decode(test.out)
 		if test.decErr != "" {
-			test.assertErr(err, test.decErr)
+			test.requireErr(err, test.decErr)
 			continue
 		}
 		if err != nil {
@@ -702,9 +687,7 @@ func TestTypes(t *testing.T) {
 		if wanted == nil {
 			wanted = indirect(test.in)
 		}
-		if !reflect.DeepEqual(out, wanted) {
-			t.Fatalf("%#v != %#v (%s)", out, wanted, test)
-		}
+		require.Equal(t, wanted, out)
 	}
 
 	for _, test := range typeTests {
@@ -718,12 +701,21 @@ func TestTypes(t *testing.T) {
 		}
 
 		var dst interface{}
-		err = msgpack.Unmarshal(b, &dst)
+		dec := msgpack.NewDecoder(bytes.NewReader(b))
+		dec.SetMapDecoder(func(dec *msgpack.Decoder) (interface{}, error) {
+			return dec.DecodeUntypedMap()
+		})
+
+		err = dec.Decode(&dst)
 		if err != nil {
 			t.Fatalf("Unmarshal into interface{} failed: %s (%s)", err, test)
 		}
 
-		dec := msgpack.NewDecoder(bytes.NewReader(b))
+		dec = msgpack.NewDecoder(bytes.NewReader(b))
+		dec.SetMapDecoder(func(dec *msgpack.Decoder) (interface{}, error) {
+			return dec.DecodeUntypedMap()
+		})
+
 		_, err = dec.DecodeInterface()
 		if err != nil {
 			t.Fatalf("DecodeInterface failed: %s (%s)", err, test)
@@ -767,29 +759,29 @@ func TestStringsBin(t *testing.T) {
 
 	for _, test := range tests {
 		b, err := msgpack.Marshal(test.in)
-		assert.Nil(t, err)
+		require.Nil(t, err)
 		s := hex.EncodeToString(b)
-		assert.Equal(t, s, test.wanted)
+		require.Equal(t, s, test.wanted)
 
 		var out string
 		err = msgpack.Unmarshal(b, &out)
-		assert.Nil(t, err)
-		assert.Equal(t, out, test.in)
+		require.Nil(t, err)
+		require.Equal(t, out, test.in)
 
 		var msg msgpack.RawMessage
 		err = msgpack.Unmarshal(b, &msg)
-		assert.Nil(t, err)
-		assert.Equal(t, []byte(msg), b)
+		require.Nil(t, err)
+		require.Equal(t, []byte(msg), b)
 
 		dec := msgpack.NewDecoder(bytes.NewReader(b))
 		v, err := dec.DecodeInterface()
-		assert.Nil(t, err)
-		assert.Equal(t, v.(string), test.in)
+		require.Nil(t, err)
+		require.Equal(t, v.(string), test.in)
 
 		var dst interface{}
 		dst = ""
 		err = msgpack.Unmarshal(b, &dst)
-		assert.EqualError(t, err, "msgpack: Decode(non-pointer string)")
+		require.EqualError(t, err, "msgpack: Decode(non-pointer string)")
 	}
 }
 
@@ -1148,21 +1140,6 @@ func TestFloat64(t *testing.T) {
 		if err.Error() != "msgpack: Decode(non-pointer float64)" {
 			t.Fatal(err)
 		}
-	}
-
-	in := float64(math.NaN())
-	b, err := msgpack.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var out float64
-	err = msgpack.Unmarshal(b, &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !math.IsNaN(out) {
-		t.Fatal("not NaN")
 	}
 }
 
