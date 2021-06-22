@@ -1,4 +1,4 @@
-module github.com/vmihailenco/msgpack/v5
+module github.com/abaron/msgpack/v5
 
 go 1.11
 
